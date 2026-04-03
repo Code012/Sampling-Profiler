@@ -1,4 +1,9 @@
 /*  date = March 12th 2026 03:41 PM  */
+/*
+TODO:
+- DO a writeup of what you learnt explaining other people how to do make one, to test your understanding
+*/
+
 #pragma once
 
 
@@ -7,14 +12,17 @@
 #include <shellapi.h>
 #include <timeapi.h>
 #include <debugapi.h>
+#include <dbghelp.h>
 
 #include <wchar.h>
 #include <iostream>
+#include <fstream>
 #include <atomic>
 #include <thread>
 #include <string>
 #include <memory>
 #include <vector>
+#include <unordered_map>
 
 /*
 1. Either attach to or spawn the process you want to process 
@@ -90,16 +98,19 @@ struct Symbol
 
 typedef std::shared_ptr<Symbol> SymbolPtr;
 
+struct FlatSymbol
+{
+    // Note(sb): usually you would think self is just sum of all its child totals, but that's not how its calculated. See below:
+    uint32_t self{};    // how many times was this function actually executing (on top of stack)
+    uint32_t total{};   // how many times did this function appear anywhere (on stack, not neccesarily just the top)
+};
+
+typedef std::unordered_map<SymbolPtr, FlatSymbol> FlatSymbolCounts;
+typedef std::pair<DWORD, FlatSymbolCounts> FlatThread;    // thread_id -> symbol aggregrates
+typedef std::vector<FlatThread> FlatThreads;
 
 namespace Profiler
 {
-
-
-
-////////////////////////////////
-//- Constants
-
-inline bool running = true;
 
 enum class Command
 {
@@ -136,7 +147,6 @@ struct CallStackEntry
 // TODO(sb): this is for a single threaded program for now, 
 // look at how to make it work for multithreaded programs
 typedef std::vector<CallStackEntry> ThreadCallStack;    // all stack frames collected for a thread across samples
-typedef std::vector<ThreadCallStack> CallStack;         // std::vector<std::vector<CallStackEntry>> CallStack
 
 enum class Error : uint32_t
 {
@@ -144,6 +154,22 @@ enum class Error : uint32_t
     AttachFailed,
 };
 
+
+// TODO(sb): arrange these in order of size
+struct State
+{
+    bool running;
+    DWORD process_id;
+    HANDLE process_handle;
+    DWORD64 process_base;       // base address of exe
+    bool symbols_initialised;
+    bool is_wow64;              // Windows32 on Windows 64 (compatibility layer for running 32-bit programs on 64-bit Windows)
+    std::atomic<uint32_t> thread_count;
+    std::unordered_map<DWORD, HANDLE> threads;              // thread id -> thread handle
+    std::unordered_map<DWORD, uint32_t> call_stack_index;   // thread id -> call_stack index (ThreadCallStack)
+    std::vector<ThreadCallStack> call_stack;
+    std::atomic<uint32_t> sampled_count;
+};
 
 	
 int Attach(char const* file_name, DWORD pid, Options& options);
@@ -169,7 +195,11 @@ this is for Launch(), use this when you're writing Launch()
 
 #endif
 
-void Run(Options& options);
+void Run(State& state, Options& options);
+
+void Sample(State& state);
 
 Options OptionsFromArgV(LPWSTR* argv);
+
+void SerialiseCallStacks(State& state);
 } // namespace Profiler
