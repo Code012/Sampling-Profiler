@@ -70,6 +70,14 @@ int Attach(char const* file_name, DWORD pid, Options& options)
     DebugSetProcessKillOnExit(FALSE);
 
     Profiler::Run(state, options);
+
+    SerialiseCallStacks();
+    // YOU WERE HERE:
+    // you serialised callstacks to a file
+    // load them into FlatSymbolCounts and FlatThread, calculating aggregrates
+    // then display
+
+    LoadFlattenedData();
     return 0;
 }
 
@@ -373,13 +381,7 @@ int main()
     if (error)
         std::cerr << "could not attach\n";
 
-    SerialiseCallStacks();
-    // YOU WERE HERE:
-    // you serialised callstacks to a file
-    // load them into FlatSymbolCounts and FlatThread, calculating aggregrates
-    // then display
-
-    LoadFlattenedData();
+    
 
 
     
