@@ -6,7 +6,7 @@ pushd build
 set cl_common=-nologo -Zi -EHsc -std:c++20
 set compile=call cl %cl_common%
 set link=-opt:ref -incremental:no
-set win32_link=shell32.lib winmm.lib
+set win32_link=shell32.lib winmm.lib DbgHelp.lib
 set target=../profiler.cpp
 set output=profile.exe
 
