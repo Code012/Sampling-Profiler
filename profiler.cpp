@@ -18,6 +18,19 @@ namespace Profiler
 {
 
 
+State* GlobalStateForCtrlC{};
+
+BOOL WINAPI ConsoleHandler(DWORD ctrl_type)
+{
+    if (ctrl_type == CTRL_C_EVENT && GlobalStateForCtrlC)
+    {
+        GlobalStateForCtrlC->running = false;
+        std::cout << "Ctrl+C pressed. Stopping profiler now and saving samples..\n";
+        return TRUE;
+    }
+    return FALSE;
+}
+
 // --[command] : signify toggleable values
 // -[flag] [value]
 Options OptionsFromArgV(LPWSTR* argv, int argc)
@@ -62,6 +75,8 @@ int Attach(char const* file_name, DWORD pid, Options& options)
     state.running = true;
     state.process_id = pid;
 
+    GlobalStateForCtrlC = &state;
+
     if (!DebugActiveProcess(pid))
     {
         std::cerr << "DebugActiveProcess failed - " << GetLastError();
@@ -71,13 +86,13 @@ int Attach(char const* file_name, DWORD pid, Options& options)
 
     Profiler::Run(state, options);
 
-    SerialiseCallStacks();
+    SerialiseCallStacks(state);
     // YOU WERE HERE:
     // you serialised callstacks to a file
     // load them into FlatSymbolCounts and FlatThread, calculating aggregrates
     // then display
 
-    LoadFlattenedData();
+    // LoadFlattenedData();
     return 0;
 }
 
@@ -129,6 +144,12 @@ void Run(State& state, Options& options)
 {
     timeBeginPeriod(1);
 
+    if (!SetConsoleCtrlHandler(ConsoleHandler, TRUE))
+    {
+        std::cerr << "Failed to set console control handler\n" ;
+        return;
+    }
+
     while (state.running)
     {
         DEBUG_EVENT ev;
@@ -151,8 +172,9 @@ void Run(State& state, Options& options)
                 std::cout << "create process, proocess_id: " << ev.dwProcessId << ", thread_id: " << ev.dwThreadId  << "\n";
                 break;
             case EXIT_PROCESS_DEBUG_EVENT:
-                // ExitProcessDebugEvent(state, ev.dwThreadId, &ev.u.ExitProcess);
+                ExitProcessDebugEvent(state, ev.dwThreadId, &ev.u.ExitProcess);
                 std::cout << "exit process\n";
+                state.running = false;
                 break;
             case CREATE_THREAD_DEBUG_EVENT:
                 if (ev.u.CreateThread.hThread != nullptr)
@@ -323,7 +345,7 @@ void Sample(State& state)
                 callstack.push_back(entry);
 
             }
-            callstack.push_back(CallStackEntry());
+            callstack.push_back(CallStackEntry());  // delimiter
             ++state.sampled_count;
         }
 
@@ -332,32 +354,53 @@ void Sample(State& state)
     }
 }
 
-// [thread count]  [[thread call stack size][thread call stack addresses][thread call stack size][thread call stack addresses]]..
+// Header: [magic][version][pointer size]
+// Body: [thread count]  REPEAT[[thread call stack size][thread call stack addresses] ... ..]
 void SerialiseCallStacks(State& state)
 {
     std::ofstream f("sample.sp", std::ios::binary); // hardcoded file name for now
+    if (!f.is_open())
+    {
+        std::cerr << "file cant open\n";
+        return;
+    }
+
+    // Header
+    f.write((char*)&PROFILER_FILE_ID, sizeof(PROFILER_FILE_ID));
+    f.write((char*)&PROFILER_FILE_VERSION, sizeof(PROFILER_FILE_VERSION));
+
+    uint32_t pointer_size = state.is_wow64 ? sizeof(uint32_t) : sizeof(uint64_t);
+    f.write((char*)&pointer_size, sizeof(pointer_size));
+
+
+    // Body    
     uint32_t thread_count = state.call_stack.size();
+
     f.write((char*)&thread_count, sizeof(thread_count)); // thread count
 
+
+    int counter{};
     for (ThreadCallStack& callstack : state.call_stack)
     {
         uint32_t entry_count = callstack.size();
         f.write((char*)&entry_count, sizeof(entry_count)); // entry count
         for (CallStackEntry& entry : callstack)
         {
-            uint64_t address = entry.symbol->address;
-            f.write((char*)address, sizeof(address));   // instructio pointer
+            uint64_t address = entry.symbol ? entry.symbol->address : 0;
+            f.write((char*)&address, sizeof(address));   // instructio pointer
         }
     }
+
+    f.close();
 }
 
 
-void LoadFlattenedData()
-{
-    uint32_t total_count = CreateProfile(....);
+// void LoadFlattenedData()
+// {
+//     uint32_t total_count = CreateProfile(....);
 
-    // display
-}
+//     // display
+// }
 
 } // namespace Profiler
 

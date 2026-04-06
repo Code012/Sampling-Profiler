@@ -83,6 +83,15 @@ ResumeThread(thread)
 */
 
 ////////////////////////////////
+//- Version
+
+namespace
+{
+    char const PROFILER_FILE_ID[] = {'J', 'O', 'E', 'M', 'A', 'M', 'A'};
+    uint32_t const PROFILER_FILE_VERSION = 1;
+}
+
+////////////////////////////////
 //- Symbols
 struct Symbol
 {
@@ -158,7 +167,7 @@ enum class Error : uint32_t
 // TODO(sb): arrange these in order of size
 struct State
 {
-    bool running;
+    std::atomic<bool> running;
     DWORD process_id;
     HANDLE process_handle;
     DWORD64 process_base;       // base address of exe
